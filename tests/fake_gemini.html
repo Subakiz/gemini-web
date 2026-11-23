@@ -1,0 +1,94 @@
+<!doctype html>
+<meta charset="utf-8"><title>Fake Gemini</title>
+<!-- Offline fake of the Gemini DOM, shaped from the CP0 live dump. Mode comes from ?mode=...
+     signedout | anon | hang | notextbox | notemp | sorry | noimage | lateimage (image shows 5 s after Stop goes) |
+     two (a second image 4 s after the first) | nodl (download button does nothing).
+     Prompts starting "Generate an image:" get a 512 px preview plus a hover-only "Download full size image" button
+     that downloads the bytes of fixtures/full_2048.png as Gemini_Generated_Image_fake.png. -->
+<style>.hidden{display:none} .gi{position:relative;display:inline-block} .gi .dl{width:24px;height:24px;visibility:hidden;position:absolute;top:4px;right:4px} .gi:hover .dl{visibility:visible}</style>
+<script src="fixtures/full_2048.js"></script>
+<body>
+<div id="top"></div>
+<main id="chat"></main>
+<div id="bottom"></div>
+<footer>Gemini is AI and can make mistakes.</footer>
+<script>
+const mode = new URLSearchParams(location.search).get("mode") || "";
+let temp = false, picked = "Everyday help";
+if (mode === "sorry") history.replaceState(null, "", "?mode=sorry&u=google.com/sorry");  // page.url must look like the block page
+const top_ = document.getElementById("top"), chat = document.getElementById("chat"), bottom = document.getElementById("bottom");
+
+if (mode !== "signedout" && mode !== "anon" && mode !== "sorry") {
+  // two matches like the live page: the first one is hidden
+  top_.innerHTML = '<a class="hidden" aria-label="Google Account: Test User (test@example.com), Google membership" href="#" role="button">x</a>' +
+                   '<a aria-label="Google Account: Test User (test@example.com)" href="#" role="button">T</a>';
+}
+if (mode !== "notemp" && mode !== "signedout") {
+  const b = document.createElement("button");
+  b.setAttribute("aria-label", "Turn on temporary chat");
+  b.textContent = "temp";
+  b.onclick = () => { temp = true; b.setAttribute("aria-label", "Turn off temporary chat"); };  // label flips, like live
+  top_.appendChild(b);
+}
+if (mode !== "signedout" && mode !== "notextbox" && mode !== "sorry") {
+  bottom.innerHTML = `
+   <div role="textbox" contenteditable="true" aria-multiline="true" aria-label="Enter a prompt for Gemini" style="min-height:2em;border:1px solid #888"><p><br></p></div>
+   <bard-mode-switcher><button aria-label="Open mode picker, currently Everyday help">Everyday help</button></bard-mode-switcher>
+   <div id="menu" class="hidden">
+     <gem-menu-item role="menuitemradio"><div class="label">Auto</div><div class="desc">Adapts to your needs</div></gem-menu-item>
+     <gem-menu-item role="menuitemradio"><div class="label">Everyday help</div><div class="desc">4 Hydrogen</div></gem-menu-item>
+     <gem-menu-item role="menuitemradio"><div class="label">Deep think</div><div class="desc">Upgrade to Ultra</div></gem-menu-item>
+     <gem-menu-item role="menuitem" aria-haspopup="true" aria-expanded="false"><div class="label"> Thinking level </div></gem-menu-item>
+   </div>
+   <div class="hidden"><gem-menu-item role="menuitemradio"><div class="label"> Low Fast and efficient</div></gem-menu-item></div>`;
+  const menu = document.getElementById("menu");
+  bottom.querySelector("bard-mode-switcher button").onclick = () => menu.classList.toggle("hidden");
+  menu.querySelectorAll('gem-menu-item[role=menuitemradio]').forEach(it => it.onclick = () => {
+    picked = it.querySelector(".label").textContent.trim(); menu.classList.add("hidden"); });
+  const box = bottom.querySelector('[role=textbox]');
+  box.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    e.preventDefault();
+    const q = box.innerText.replace(/\n$/, ""); box.innerHTML = "<p><br></p>";
+    send(q);
+  });
+}
+function send(q) {
+  const isImg = q.startsWith("Generate an image:");
+  const reply = isImg ? (mode === "noimage" ? "Sorry, I can't create that image." : "Here is an image: " + q.slice(18).trim()) : 'Reply to "' + q.slice(0, 20) + '" (len=' + q.length + ", temp=" + (temp ? "on" : "off") + ", model=" + picked + "). Done.";
+  const r = document.createElement("model-response");
+  r.innerHTML = '<div class="thoughts">Show thinking</div><message-content><div class="markdown"></div></message-content>';
+  chat.appendChild(r);
+  const md = r.querySelector(".markdown");
+  const stop = document.createElement("button");
+  stop.setAttribute("aria-label", "Stop response"); stop.textContent = "stop";
+  bottom.appendChild(stop);
+  const addImage = () => {
+    const c = document.createElement("canvas"); c.width = c.height = 512;
+    const g = c.getContext("2d"); g.fillStyle = "#c33"; g.fillRect(0, 0, 512, 512);
+    r.querySelector("message-content").insertAdjacentHTML("beforeend",
+      '<div class="gi"><img alt=", AI generated" src="' + c.toDataURL() + '"><button class="dl" aria-label="Download full size image"></button></div>');
+    const dls = r.querySelectorAll(".dl");
+    dls[dls.length - 1].onclick = () => {
+      if (mode === "nodl") return;  // dead button: no download ever fires
+      // file:// anchors navigate instead of downloading, so serve the fixture bytes as a blob
+      const bytes = Uint8Array.from(atob(window.FULL_PNG_B64), ch => ch.charCodeAt(0));
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], {type: "image/png"}));
+      a.download = "Gemini_Generated_Image_fake.png"; a.click(); };
+  };
+  const words = reply.split(" "); let i = 0;
+  (function step() {
+    if (i < words.length) {
+      md.textContent = words.slice(0, ++i).join(" ");
+      // one 1 s pause mid-stream (under the 2 s stability window); "hang" never finishes
+      if (mode === "hang" && i === 2) return;
+      setTimeout(step, i === 3 ? 1000 : 150);
+    } else {
+      if (isImg && mode !== "noimage" && mode !== "lateimage") addImage();
+      if (isImg && mode === "two") setTimeout(addImage, 4000);
+      stop.remove();
+      if (isImg && mode === "lateimage") setTimeout(addImage, 5000);
+    }
+  })();
+}
+</script>
